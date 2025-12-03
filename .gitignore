@@ -1,0 +1,32 @@
+# 파이썬 캐시
+__pycache__/
+*.pyc
+
+# 가상환경
+.venv/
+venv/
+env/
+
+# 데이터셋 (원본/가공)
+datasets/
+!datasets/README.md   # 원하면 설명 파일만 남기기
+
+# 학습 결과, 로그
+outputs/
+runs/
+logs/
+wandb/
+
+# Unsloth / HF / 캐시
+unsloth_compiled_cache/
+.cache/
+huggingface/
+.cache/huggingface/
+
+# 체크포인트 (로컬에서만 쓰고 Git에는 안 올리기)
+*.bin
+*.safetensors
+
+# 기타
+*.swp
+*.tmp

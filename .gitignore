@@ -13,7 +13,6 @@ datasets/
 
 # 학습 결과, 로그
 outputs/
-runs/
 logs/
 wandb/
 

@@ -47,6 +47,12 @@ def main():
     training_cfg["output_dir"] = str(run_dir)
     cfg["training"]["output_dir"] = str(run_dir)
 
+    # ✅ TensorBoard 로그도 run_dir 아래에 저장되도록 설정
+    tb_dir = run_dir / "tensorboard"
+    tb_dir.mkdir(parents=True, exist_ok=True)
+    training_cfg["logging_dir"] = str(tb_dir)
+    cfg["training"]["logging_dir"] = str(tb_dir)
+
     # 3) config / 스크립트 백업
     shutil.copy2(args.config, run_dir / "config.yaml")
     this_script_path = Path(__file__).resolve()

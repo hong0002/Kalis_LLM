@@ -9,7 +9,7 @@ import faiss
 from sentence_transformers import SentenceTransformer
 
 
-RAG_PDF_DIR = Path("datasets/processed/rag")
+RAG_PDF_DIR = Path("datasets/raws/rag/RAG_crawling")
 INDEX_DIR = Path("datasets/processed/rag_index")
 INDEX_DIR.mkdir(parents=True, exist_ok=True)
 

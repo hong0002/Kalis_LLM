@@ -1,6 +1,6 @@
 from typing import Dict, Any, Optional
 from trl import SFTTrainer, SFTConfig
-
+from transformers import EarlyStoppingCallback
 
 def create_sft_trainer(
     model,
@@ -41,6 +41,12 @@ def create_sft_trainer(
     metric_for_best_model = training_cfg.get("metric_for_best_model", "eval_loss")
     greater_is_better = bool(training_cfg.get("greater_is_better", False))
 
+    # ✅ Early stopping 설정값 읽기
+    early_stopping_patience = training_cfg.get("early_stopping_patience", None)
+    early_stopping_threshold = float(
+        training_cfg.get("early_stopping_threshold", 0.0)
+    )
+
     sft_config = SFTConfig(
         output_dir=training_cfg["output_dir"],
         num_train_epochs=float(training_cfg.get("num_train_epochs", 3)),
@@ -55,8 +61,9 @@ def create_sft_trainer(
         learning_rate=float(training_cfg.get("learning_rate", 1e-4)),
         lr_scheduler_type=training_cfg.get("lr_scheduler_type", "cosine"),
         warmup_ratio=float(training_cfg.get("warmup_ratio", 0.03)),
-        weight_decay=float(training_cfg.get("weight_decay", 0.01)),
+        weight_decay=float(training_cfg.get("weight_decay", 0.01),
 
+        ),
         logging_steps=int(training_cfg.get("logging_steps", 10)),
         logging_dir=logging_dir,
 
@@ -82,6 +89,16 @@ def create_sft_trainer(
         dataset_text_field=None,  # formatting_func 사용
     )
 
+    # ✅ 콜백 리스트 구성
+    callbacks = []
+    if early_stopping_patience is not None and evaluation_strategy != "no":
+        callbacks.append(
+            EarlyStoppingCallback(
+                early_stopping_patience=int(early_stopping_patience),
+                early_stopping_threshold=early_stopping_threshold,
+            )
+        )
+
     trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
@@ -89,6 +106,7 @@ def create_sft_trainer(
         eval_dataset=eval_dataset,
         formatting_func=formatting_prompts_func,
         args=sft_config,
+        callbacks=callbacks,  # ✅ 여기 추가
     )
 
     return trainer

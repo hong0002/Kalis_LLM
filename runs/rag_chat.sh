@@ -1,1 +1,2 @@
-CUDA_VISIBLE_DEVICES=0 python scripts/rag_chat.py --run_dir outputs/kanana_law_sft/20251203_203519_kanana-1.5-8b-instruct-2505
+export PYTHONPATH=$(pwd)   # 현재 디렉터리를 파이썬 모듈 경로에 추가
+CUDA_VISIBLE_DEVICES=1 python scripts/rag_chat.py --run_dir outputs/kanana_law_sft/20251203_203519_kanana-1.5-8b-instruct-2505

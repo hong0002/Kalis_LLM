@@ -18,9 +18,9 @@ lora:
     - down_proj
 
 dataset:
-  train_path: "datasets/processed/law_train.jsonl"
-  valid_path: "datasets/processed/law_valid.jsonl"
-  test_path: "datasets/processed/law_test.jsonl"
+  train_path: "datasets/processed/law_train_nophone.jsonl"
+  valid_path: "datasets/processed/law_valid_nophone.jsonl"
+  test_path: "datasets/processed/law_test_nophone.jsonl"
 
 training:
   output_dir: "outputs/kanana_law_sft"
@@ -48,6 +48,9 @@ training:
   load_best_model_at_end: true
   metric_for_best_model: "eval_loss"
   greater_is_better: false
+
+  early_stopping_patience: 3          # 개선 없으면 3번 평가 후 stop
+  early_stopping_threshold: 0.0       # 개선 폭 기준 (0이면 조금이라도 좋아지면 ok)
 
   packing: false
   gradient_checkpointing: true

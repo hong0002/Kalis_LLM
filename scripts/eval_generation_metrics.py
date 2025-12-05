@@ -11,16 +11,20 @@ from rouge_score import rouge_scorer
 import faiss
 import numpy as np
 from sentence_transformers import SentenceTransformer
+from tqdm.auto import tqdm
+
+from bert_score import score as bertscore_score   # 🔹 BERTScore
+from nltk.translate.meteor_score import meteor_score   # 🔹 METEOR
 
 from src.data import load_law_sft_dataset
 from utils import set_seed
 
 
-# ===== RAG 관련 설정 (build_rag_index.py / augment_law_dataset_with_rag.py와 맞춰 쓸 것) =====
+# ===== RAG 관련 설정 =====
 RAG_INDEX_DIR = Path("datasets/processed/rag_index")
 RAG_INDEX_PATH = RAG_INDEX_DIR / "rag_index.faiss"
 RAG_META_PATH = RAG_INDEX_DIR / "rag_meta.jsonl"
-RAG_EMBED_MODEL = "nlpai-lab/KURE-v1"   # 인덱스 만들 때 썼던 모델 이름과 동일하게
+RAG_EMBED_MODEL = "nlpai-lab/KURE-v1"
 
 
 def load_rag_meta(meta_path: Path):
@@ -72,20 +76,16 @@ def build_rag_context_str(retrieved, max_chars: int = 1500) -> str:
 
 
 def add_rag_to_messages(messages, context_str: str):
-    """
-    system 메시지에 [참고할 관련 법령 발췌]를 붙이는 방식.
-    system이 없으면 새로 하나 추가.
-    (ref 이전의 prompt_messages에만 적용할 것)
-    """
+    """system 메시지에 [참고할 관련 법령 발췌]를 붙이는 방식."""
     new_messages = []
     added = False
 
     for i, m in enumerate(messages):
         if i == 0 and m.get("role") == "system":
             new_content = (
-                m.get("content", "") +
-                "\n\n[참고할 관련 법령 발췌]\n" +
-                context_str
+                m.get("content", "")
+                + "\n\n[참고할 관련 법령 발췌]\n"
+                + context_str
             )
             new_messages.append({"role": "system", "content": new_content})
             added = True
@@ -147,6 +147,23 @@ def parse_args():
         type=int,
         default=1500,
         help="RAG 컨텍스트 최대 글자 수",
+    )
+    # 🔹 BERTScore / METEOR 옵션 (필요하면 끄고 켤 수 있게)
+    p.add_argument(
+        "--use_bertscore",
+        action="store_true",
+        help="BERTScore를 계산할지 여부",
+    )
+    p.add_argument(
+        "--bertscore_model_type",
+        type=str,
+        default="klue/bert-base",
+        help="BERTScore에 사용할 HF 모델 이름 (예: klue/bert-base, xlm-roberta-large 등)",
+    )
+    p.add_argument(
+        "--use_meteor",
+        action="store_true",
+        help="METEOR 점수를 계산할지 여부",
     )
     return p.parse_args()
 
@@ -217,12 +234,27 @@ def main():
     hyps = []
     metrics_per_sample = []
 
-    output_path = run_dir / args.output_file
+    # 🔹 RAG 여부에 따라 파일 이름 자동 변경
+    base_results_name = Path(args.output_file)  # 예: gen_eval_results.jsonl
+    if base_results_name.suffix == "":
+        base_results_name = base_results_name.with_suffix(".jsonl")
+
+    suffix = "rag" if args.use_rag else "norag"
+    results_filename = f"{base_results_name.stem}_{suffix}{base_results_name.suffix}"
+    summary_filename = f"gen_eval_summary_{suffix}.json"
+
+    output_path = run_dir / results_filename
+    summary_path = run_dir / summary_filename
+
     fout = output_path.open("w", encoding="utf-8")
 
-    print("[Eval-Gen] Start generating and evaluating...")
+    print(f"[Eval-Gen] Start generating and evaluating...")
+    print(f"[Eval-Gen] Per-sample results -> {output_path}")
 
-    for i, example in enumerate(test_dataset):
+    # 🔹 tqdm으로 진행 상황 표시
+    for i, example in enumerate(
+        tqdm(test_dataset, desc="[Eval-Gen] Samples", total=len(test_dataset))
+    ):
         ex_id = example.get("id", f"sample_{i}")
         messages = example["messages"]
 
@@ -246,7 +278,6 @@ def main():
 
         # 🔹 use_rag인 경우, user 질문으로 검색 → system에 컨텍스트 추가
         if args.use_rag:
-            # 간단하게 "첫 user 메시지"를 쿼리로 사용
             user_text = ""
             for m in prompt_messages:
                 if m.get("role") == "user":
@@ -305,9 +336,6 @@ def main():
         fout.write(json.dumps(sample_metric, ensure_ascii=False) + "\n")
         metrics_per_sample.append(sample_metric)
 
-        if (i + 1) % 50 == 0:
-            print(f"[Eval-Gen] Processed {i+1}/{len(test_dataset)} samples...")
-
     fout.close()
     print(f"[Eval-Gen] Saved per-sample results to: {output_path}")
 
@@ -319,7 +347,34 @@ def main():
     avg_rouge2 = sum(m["rouge2"] for m in metrics_per_sample) / len(metrics_per_sample)
     avg_rougeL = sum(m["rougeL"] for m in metrics_per_sample) / len(metrics_per_sample)
 
-    # 9) 요약 지표 저장
+    # 9) BERTScore / METEOR 계산 (옵션)
+    bert_p = bert_r = bert_f = None
+    meteor_avg = None
+
+    if args.use_bertscore:
+        print(f"[Eval-Gen] Computing BERTScore with model: {args.bertscore_model_type}")
+        # lang='ko'는 다국어 모델일 때 optional, 한국어라서 같이 줘도 됨
+        P, R, F1 = bertscore_score(
+            hyps,
+            refs,
+            model_type=args.bertscore_model_type,
+            lang="ko",
+            verbose=True,
+        )
+        bert_p = float(P.mean())
+        bert_r = float(R.mean())
+        bert_f = float(F1.mean())
+
+    if args.use_meteor:
+        print("[Eval-Gen] Computing METEOR...")
+        meteor_scores = []
+        for ref, hyp in zip(refs, hyps):
+            ref_tokens = ref.split()
+            hyp_tokens = hyp.split()
+            meteor_scores.append(meteor_score([ref_tokens], hyp_tokens))
+        meteor_avg = float(sum(meteor_scores) / len(meteor_scores))
+
+    # 10) 요약 지표 저장
     summary = {
         "num_samples": len(metrics_per_sample),
         "bleu_score": bleu.score,
@@ -329,8 +384,15 @@ def main():
         "use_rag": args.use_rag,
         "rag_top_k": args.rag_top_k if args.use_rag else None,
         "rag_max_context_chars": args.rag_max_context_chars if args.use_rag else None,
+        "use_bertscore": args.use_bertscore,
+        "bertscore_model_type": args.bertscore_model_type if args.use_bertscore else None,
+        "bertscore_P": bert_p,
+        "bertscore_R": bert_r,
+        "bertscore_F1": bert_f,
+        "use_meteor": args.use_meteor,
+        "meteor": meteor_avg,
     }
-    summary_path = run_dir / "gen_eval_summary.json"
+
     with summary_path.open("w", encoding="utf-8") as f:
         json.dump(summary, f, ensure_ascii=False, indent=2)
 
